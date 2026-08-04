@@ -16,7 +16,7 @@ export default function Login() {
     setCargando(true);
     try {
       await login(username, password);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'No se pudo iniciar sesión.');
     } finally {

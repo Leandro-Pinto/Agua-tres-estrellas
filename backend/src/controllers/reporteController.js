@@ -1,5 +1,5 @@
-const { Op, fn, col, literal } = require('sequelize');
-const { Cliente, Pedido } = require('../models');
+const { Op, fn, col, literal, QueryTypes } = require('sequelize');
+const { sequelize, Cliente, Pedido } = require('../models');
 
 // Umbrales de RF-16 (en días), configurables vía query string si se necesita ajustar.
 const UMBRAL_DEFAULT = { Semanal: 10, Quincenal: 20, Mensual: 45, Ocasional: 90 };
@@ -74,16 +74,38 @@ async function topClientesPorBidones(req, res, next) {
     const fin = new Date(inicio);
     fin.setMonth(fin.getMonth() + 1);
 
-    const filas = await Pedido.findAll({
-      attributes: ['id_cliente', [fn('SUM', col('cantidad_botellones')), 'total_botellones']],
-      where: { fecha_solicitud: { [Op.gte]: inicio, [Op.lt]: fin } },
-      group: ['id_cliente'],
-      order: [[literal('total_botellones'), 'DESC']],
-      include: [{ model: Cliente, as: 'cliente', attributes: ['nombre', 'tipo', 'telefono'] }],
-      limit: 20,
-    });
+    const filas = await sequelize.query(
+      `
+      SELECT
+        p.id_cliente,
+        c.nombre,
+        c.tipo,
+        c.telefono,
+        SUM(p.cantidad_botellones) AS total_botellones
+      FROM pedidos p
+      INNER JOIN clientes c ON c.id_cliente = p.id_cliente
+      WHERE p.fecha_solicitud >= :inicio AND p.fecha_solicitud < :fin
+      GROUP BY p.id_cliente
+      ORDER BY total_botellones DESC
+      LIMIT 20
+      `,
+      {
+        replacements: { inicio: inicio.toISOString(), fin: fin.toISOString() },
+        type: QueryTypes.SELECT,
+      }
+    );
 
-    res.json({ mes, ranking: filas });
+    const ranking = filas.map((row) => ({
+      id_cliente: row.id_cliente,
+      total_botellones: Number(row.total_botellones),
+      cliente: {
+        nombre: row.nombre,
+        tipo: row.tipo,
+        telefono: row.telefono,
+      },
+    }));
+
+    res.json({ mes, ranking });
   } catch (err) {
     next(err);
   }

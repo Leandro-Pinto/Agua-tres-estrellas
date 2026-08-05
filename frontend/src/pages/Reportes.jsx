@@ -5,6 +5,7 @@ import { formatoFecha } from '../utils';
 export default function Reportes() {
   const [porTipo, setPorTipo] = useState([]);
   const [inactivos, setInactivos] = useState(null);
+  const [prediccion, setPrediccion] = useState(null);
   const [topBidones, setTopBidones] = useState(null);
   const [cargando, setCargando] = useState(true);
 
@@ -12,12 +13,14 @@ export default function Reportes() {
     Promise.all([
       api.get('/reportes/clientes-por-tipo'),
       api.get('/reportes/clientes-inactivos'),
+      api.get('/reportes/prediccion-consumo'),
       api.get('/reportes/top-bidones'),
     ])
-      .then(([r1, r2, r3]) => {
+      .then(([r1, r2, r3, r4]) => {
         setPorTipo(r1.data);
         setInactivos(r2.data);
-        setTopBidones(r3.data);
+        setPrediccion(r3.data);
+        setTopBidones(r4.data);
       })
       .finally(() => setCargando(false));
   }, []);
@@ -81,6 +84,36 @@ export default function Reportes() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="card" style={{ padding: '18px 20px', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16 }}>Predicción de consumo de agua</h2>
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          Estimación simple basada en la frecuencia habitual y la última entrega registrada.
+        </p>
+
+        <table className="table" style={{ marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Tipo</th>
+              <th>Frecuencia</th>
+              <th>Estado</th>
+              <th>Días sin pedido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {prediccion?.clientes?.map((c) => (
+              <tr key={c.id_cliente}>
+                <td>{c.nombre}</td>
+                <td>{c.tipo}</td>
+                <td>{c.frecuencia_habitual}</td>
+                <td>{c.estado}</td>
+                <td>{c.dias_sin_pedido ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <div className="card" style={{ padding: '18px 20px' }}>

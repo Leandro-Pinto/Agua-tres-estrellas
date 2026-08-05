@@ -66,6 +66,63 @@ async function clientesInactivos(req, res, next) {
   }
 }
 
+// Predicción simple: clientes que parecen consumir agua vs los que no, según frecuencia y última entrega.
+async function prediccionConsumo(req, res, next) {
+  try {
+    const umbral = { ...UMBRAL_DEFAULT };
+    ['Semanal', 'Quincenal', 'Mensual', 'Ocasional'].forEach((f) => {
+      if (req.query[f]) umbral[f] = Number(req.query[f]);
+    });
+
+    const clientes = await Cliente.findAll({
+      where: { activo: true, frecuencia_habitual: { [Op.ne]: null } },
+      include: [{ model: Pedido, as: 'pedidos' }],
+    });
+
+    const hoy = new Date();
+    const prediccion = clientes
+      .map((cliente) => {
+        const entregados = cliente.pedidos.filter((p) => p.fecha_entrega_real);
+        if (entregados.length === 0) {
+          return {
+            id_cliente: cliente.id_cliente,
+            nombre: cliente.nombre,
+            tipo: cliente.tipo,
+            frecuencia_habitual: cliente.frecuencia_habitual,
+            ultima_entrega: null,
+            dias_sin_pedido: null,
+            umbral_dias: umbral[cliente.frecuencia_habitual],
+            estado: 'Sin historial',
+          };
+        }
+
+        const ultimaEntrega = entregados.reduce((max, p) =>
+          new Date(p.fecha_entrega_real) > new Date(max.fecha_entrega_real) ? p : max
+        ).fecha_entrega_real;
+
+        const diasSinPedido = Math.floor((hoy - new Date(ultimaEntrega)) / (1000 * 60 * 60 * 24));
+        const limite = umbral[cliente.frecuencia_habitual];
+        const tomaAgua = diasSinPedido <= limite;
+
+        return {
+          id_cliente: cliente.id_cliente,
+          nombre: cliente.nombre,
+          tipo: cliente.tipo,
+          frecuencia_habitual: cliente.frecuencia_habitual,
+          ultima_entrega: ultimaEntrega,
+          dias_sin_pedido: diasSinPedido,
+          umbral_dias: limite,
+          estado: tomaAgua ? 'Probable consumo activo' : 'Probable sin consumo',
+        };
+      })
+      .sort((a, b) => (b.dias_sin_pedido ?? -1) - (a.dias_sin_pedido ?? -1));
+
+    res.json({ umbral_dias: umbral, clientes: prediccion });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // RF-17: clientes con mayor cantidad de bidones pedidos en el mes actual (o el indicado por ?mes=YYYY-MM).
 async function topClientesPorBidones(req, res, next) {
   try {
@@ -111,4 +168,4 @@ async function topClientesPorBidones(req, res, next) {
   }
 }
 
-module.exports = { clientesPorTipo, clientesInactivos, topClientesPorBidones };
+module.exports = { clientesPorTipo, clientesInactivos, prediccionConsumo, topClientesPorBidones };

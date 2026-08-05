@@ -7,6 +7,7 @@ router.use(requireAuth);
 
 router.get('/clientes-por-tipo', ctrl.clientesPorTipo);
 router.get('/clientes-inactivos', ctrl.clientesInactivos);
+router.get('/prediccion-consumo', ctrl.prediccionConsumo);
 router.get('/top-bidones', ctrl.topClientesPorBidones);
 
 module.exports = router;

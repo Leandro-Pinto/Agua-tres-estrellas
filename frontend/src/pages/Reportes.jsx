@@ -89,7 +89,7 @@ export default function Reportes() {
       <div className="card" style={{ padding: '18px 20px', marginBottom: 20 }}>
         <h2 style={{ fontSize: 16 }}>Predicción de consumo de agua</h2>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
-          Estimación simple basada en la frecuencia habitual y la última entrega registrada.
+          Modelo mejorado tipo perceptrón simple: combina frecuencia, recencia, volumen de botellones, estabilidad del patrón y tipo de cliente para estimar la probabilidad de consumo activo.
         </p>
 
         <table className="table" style={{ marginTop: 10 }}>
@@ -98,6 +98,7 @@ export default function Reportes() {
               <th>Cliente</th>
               <th>Tipo</th>
               <th>Frecuencia</th>
+              <th>Probabilidad</th>
               <th>Estado</th>
               <th>Días sin pedido</th>
             </tr>
@@ -108,6 +109,7 @@ export default function Reportes() {
                 <td>{c.nombre}</td>
                 <td>{c.tipo}</td>
                 <td>{c.frecuencia_habitual}</td>
+                <td>{c.probabilidad_consumo != null ? `${(c.probabilidad_consumo * 100).toFixed(0)}%` : '—'}</td>
                 <td>{c.estado}</td>
                 <td>{c.dias_sin_pedido ?? '—'}</td>
               </tr>

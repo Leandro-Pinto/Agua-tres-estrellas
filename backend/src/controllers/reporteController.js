@@ -1,5 +1,6 @@
 const { Op, fn, col, literal, QueryTypes } = require('sequelize');
 const { sequelize, Cliente, Pedido } = require('../models');
+const { calcularPrediccionCliente } = require('../services/prediccionConsumo');
 
 // Umbrales de RF-16 (en días), configurables vía query string si se necesita ajustar.
 const UMBRAL_DEFAULT = { Semanal: 10, Quincenal: 20, Mensual: 45, Ocasional: 90 };
@@ -66,7 +67,7 @@ async function clientesInactivos(req, res, next) {
   }
 }
 
-// Predicción simple: clientes que parecen consumir agua vs los que no, según frecuencia y última entrega.
+// Predicción de clasificación binaria para distinguir si el cliente consume agua o no.
 async function prediccionConsumo(req, res, next) {
   try {
     const umbral = { ...UMBRAL_DEFAULT };
@@ -80,29 +81,47 @@ async function prediccionConsumo(req, res, next) {
     });
 
     const hoy = new Date();
+
     const prediccion = clientes
       .map((cliente) => {
         const entregados = cliente.pedidos.filter((p) => p.fecha_entrega_real);
-        if (entregados.length === 0) {
-          return {
-            id_cliente: cliente.id_cliente,
-            nombre: cliente.nombre,
-            tipo: cliente.tipo,
-            frecuencia_habitual: cliente.frecuencia_habitual,
-            ultima_entrega: null,
-            dias_sin_pedido: null,
-            umbral_dias: umbral[cliente.frecuencia_habitual],
-            estado: 'Sin historial',
-          };
+        let ultimaEntrega = null;
+        let diasSinPedido = null;
+        let volumenPromedio = 0;
+        let estabilidad = null;
+        let historialPedidos = 0;
+
+        if (entregados.length > 0) {
+          const ordenadas = [...entregados].sort((a, b) => new Date(a.fecha_entrega_real) - new Date(b.fecha_entrega_real));
+          ultimaEntrega = ordenadas[ordenadas.length - 1].fecha_entrega_real;
+          diasSinPedido = Math.floor((hoy - new Date(ultimaEntrega)) / (1000 * 60 * 60 * 24));
+          volumenPromedio = ordenadas.reduce((sum, p) => sum + Number(p.cantidad_botellones || 0), 0) / ordenadas.length;
+          historialPedidos = ordenadas.length;
+
+          const intervalos = [];
+          for (let i = 1; i < ordenadas.length; i += 1) {
+            const anterior = new Date(ordenadas[i - 1].fecha_entrega_real);
+            const actual = new Date(ordenadas[i].fecha_entrega_real);
+            intervalos.push(Math.abs((actual - anterior) / (1000 * 60 * 60 * 24)));
+          }
+
+          if (intervalos.length > 0) {
+            const promedio = intervalos.reduce((sum, gap) => sum + gap, 0) / intervalos.length;
+            const desviacion = intervalos.reduce((sum, gap) => sum + Math.abs(gap - promedio), 0) / intervalos.length;
+            estabilidad = Math.max(0.2, Math.min(1, 1 - desviacion / 30));
+          } else {
+            estabilidad = 0.7;
+          }
         }
 
-        const ultimaEntrega = entregados.reduce((max, p) =>
-          new Date(p.fecha_entrega_real) > new Date(max.fecha_entrega_real) ? p : max
-        ).fecha_entrega_real;
-
-        const diasSinPedido = Math.floor((hoy - new Date(ultimaEntrega)) / (1000 * 60 * 60 * 24));
-        const limite = umbral[cliente.frecuencia_habitual];
-        const tomaAgua = diasSinPedido <= limite;
+        const resultado = calcularPrediccionCliente({
+          frecuencia_habitual: cliente.frecuencia_habitual,
+          tipo: cliente.tipo,
+          dias_sin_pedido: diasSinPedido,
+          volumen_promedio: volumenPromedio,
+          historial_pedidos: historialPedidos,
+          estabilidad,
+        });
 
         return {
           id_cliente: cliente.id_cliente,
@@ -111,11 +130,12 @@ async function prediccionConsumo(req, res, next) {
           frecuencia_habitual: cliente.frecuencia_habitual,
           ultima_entrega: ultimaEntrega,
           dias_sin_pedido: diasSinPedido,
-          umbral_dias: limite,
-          estado: tomaAgua ? 'Probable consumo activo' : 'Probable sin consumo',
+          umbral_dias: umbral[cliente.frecuencia_habitual],
+          probabilidad_consumo: resultado.probabilidad_consumo,
+          estado: resultado.clase_prediccion,
         };
       })
-      .sort((a, b) => (b.dias_sin_pedido ?? -1) - (a.dias_sin_pedido ?? -1));
+      .sort((a, b) => (b.probabilidad_consumo ?? 0) - (a.probabilidad_consumo ?? 0));
 
     res.json({ umbral_dias: umbral, clientes: prediccion });
   } catch (err) {
